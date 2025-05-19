@@ -49,6 +49,6 @@ clean:
 # Run the example
 run: $(TARGET)
 	@echo "Running example..."
-	@./$(TARGET) example.ll
+	@./$(TARGET) example.fs
 
 .PHONY: all build clean run
