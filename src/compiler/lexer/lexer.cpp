@@ -16,7 +16,9 @@ static std::unordered_map<std::string, TokenType> keywords = {
     {"return", TokenType::RETURN},
     {"and", TokenType::AND},
     {"or", TokenType::OR},
-    {"not", TokenType::NOT}
+    {"not", TokenType::NOT},
+    {"pass", TokenType::PASS},
+    {"print", TokenType::PRINT},
 };
 
 Lexer::Lexer(const std::string& source) : source(source) {}
@@ -32,7 +34,44 @@ std::vector<Token> Lexer::scanTokens() {
 }
 
 void Lexer::scanToken() {
+    if (atLineStart) {
+        int indentCount = 0;
+
+        // Count spaces or tabs
+        while (peek() == ' ' || peek() == '\t') {
+            if (peek() == ' ') indentCount += 1;
+            else if (peek() == '\t') indentCount += 4; // or your tab size
+            advance();
+        }
+
+        int currentIndent = indentStack.back();
+        if (indentCount > currentIndent) {
+            indentStack.push_back(indentCount);
+            addToken(TokenType::INDENT);
+        } else {
+            while (indentCount < indentStack.back()) {
+                indentStack.pop_back();
+                addToken(TokenType::DEDENT);
+            }
+            if (indentCount != indentStack.back()) {
+                error(line, "Inconsistent indentation.");
+            }
+        }
+
+        atLineStart = false;
+    }
+
+    start = current;
+    if (isAtEnd()) return;
+
     char c = advance();
+
+    // skip spaces/tabs inside lines
+    if (c == ' ' || c == '\t') {
+        // just skip without emitting tokens
+        return;
+    }
+    
     switch (c) {
         // Grouping symbols
         case '(': addToken(TokenType::LEFT_PAREN); break;
@@ -50,21 +89,34 @@ void Lexer::scanToken() {
         case '+': addToken(TokenType::PLUS); break;
         case '-': addToken(TokenType::MINUS); break;
         case '*': addToken(TokenType::STAR); break;
-        case '/': addToken(TokenType::SLASH); break;
+        case '/':
+            if (match('/')) {
+                while (peek() != '\n' && !isAtEnd()) advance(); // line comment
+            } else if (match('*')) {
+                while (!(peek() == '*' && peekNext() == '/') && !isAtEnd()) advance(); // multiline comment
+                if (!isAtEnd()) {
+                    advance(); // consume '*'
+                    advance(); // consume '/'
+                }
+            } else {
+                addToken(TokenType::SLASH);
+            }
+            break;
+
         case '=': addToken(match('=') ? TokenType::EQUAL_EQUAL : TokenType::ASSIGN); break;
         case '!': addToken(match('=') ? TokenType::BANG_EQUAL : TokenType::IDENTIFIER); break;
         case '<': addToken(match('=') ? TokenType::LESS_EQUAL : TokenType::LESS); break;
         case '>': addToken(match('=') ? TokenType::GREATER_EQUAL : TokenType::GREATER); break;
 
-        // Whitespace
+        // Whitespace (skip)
         case ' ':
         case '\r':
-        case '\t':
             break;
 
         case '\n':
             addToken(TokenType::NEWLINE);
             line++;
+            atLineStart = true;
             break;
 
         case '"':
@@ -82,6 +134,7 @@ void Lexer::scanToken() {
             break;
     }
 }
+
 
 
 char Lexer::advance() {

@@ -13,6 +13,9 @@ private:
     int start = 0;
     int current = 0;
     int line = 1;
+    std::vector<int> indentStack = {0};  // starts with 0 indentation
+    bool atLineStart = true;             // track start of line
+
     
     bool isAtEnd();
     void scanToken();

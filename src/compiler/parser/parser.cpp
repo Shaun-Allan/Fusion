@@ -2,410 +2,282 @@
 #include <stdexcept>
 #include <iostream>
 
-Parser::Parser(const std::vector<Token> &tokens) : tokens(tokens), current(0), indentLevel(0) {}
+Parser::Parser(const std::vector<Token>& tokens) : tokens(tokens), current(0), indentLevel(0) {}
 
-std::vector<std::unique_ptr<Statement>> Parser::parse()
-{
+std::vector<std::unique_ptr<Statement>> Parser::parse() {
     std::vector<std::unique_ptr<Statement>> statements;
-    while (!isAtEnd())
-    {
+    while (!isAtEnd()) {
         skipNewlines();
-        if (isAtEnd())
-            break;
-        statements.push_back(declaration());
+        if (isAtEnd()) break;
+        try {
+            statements.push_back(declaration());
+        } catch (const std::runtime_error& e) {
+            std::cerr << e.what() << std::endl;
+            // Synchronize for error recovery
+            synchronize();
+        }
     }
     return statements;
 }
 
-std::unique_ptr<Statement> Parser::declaration()
-{
+void Parser::synchronize() {
+    advance();
+    
+    while (!isAtEnd()) {
+        if (previous().type == TokenType::NEWLINE) return;
+        
+        switch (peek().type) {
+            case TokenType::CLASS:
+            case TokenType::TASK:
+            case TokenType::FOR:
+            case TokenType::IF:
+            case TokenType::WHILE:
+            case TokenType::PRINT:
+            case TokenType::RETURN:
+                return;
+        }
+        
+        advance();
+    }
+}
+
+std::unique_ptr<Statement> Parser::declaration() {
     skipNewlines();
 
-    if (match(TokenType::CLASS))
-        return classDeclaration();
-    if (match(TokenType::TASK))
-        return taskDeclaration();
-    if (match(TokenType::IF))
-        return ifStatement();
-    if (match(TokenType::WHILE))
-        return whileStatement();
-    if (match(TokenType::FOR))
-        return forStatement();
-    if (match(TokenType::RETURN))
-        return returnStatement();
-    if (match(TokenType::PASS))
-        return passStatement();
-    if (match(TokenType::BREAK))
-        return breakStatement();
-    if (match(TokenType::CONTINUE))
-        return continueStatement();
-    if (match(TokenType::PRINT))
-        return printStatement();
-
-    // Could be assignment or expression statement
-    return statement();
-}
-
-// Parse class and task declarations as before
-// ...
-
-// New Statement parsing functions:
-
-std::unique_ptr<Statement> Parser::ifStatement()
-{
-    auto condition = expression();
-
-    std::vector<std::unique_ptr<Statement>> thenBranch;
-    std::vector<std::unique_ptr<Statement>> elseBranch;
-
-    if (match(TokenType::LEFT_BRACE))
-    {
-        while (!check(TokenType::RIGHT_BRACE) && !isAtEnd())
-        {
-            thenBranch.push_back(declaration());
-        }
-        consume(TokenType::RIGHT_BRACE, "Expect '}' after if block.");
-    }
-    else if (match(TokenType::NEWLINE))
-    {
-        consume(TokenType::INDENT, "Expect indented block after if condition.");
-        while (!check(TokenType::DEDENT) && !isAtEnd())
-        {
-            thenBranch.push_back(declaration());
-        }
-        consume(TokenType::DEDENT, "Expect dedent after if block.");
-    }
-    else
-    {
-        throw std::runtime_error("Expect '{' or indentation after if condition.");
-    }
-
-    if (match(TokenType::ELSE))
-    {
-        if (match(TokenType::LEFT_BRACE))
-        {
-            while (!check(TokenType::RIGHT_BRACE) && !isAtEnd())
-            {
-                elseBranch.push_back(declaration());
-            }
-            consume(TokenType::RIGHT_BRACE, "Expect '}' after else block.");
-        }
-        else if (match(TokenType::NEWLINE))
-        {
-            consume(TokenType::INDENT, "Expect indented block after else.");
-            while (!check(TokenType::DEDENT) && !isAtEnd())
-            {
-                elseBranch.push_back(declaration());
-            }
-            consume(TokenType::DEDENT, "Expect dedent after else block.");
-        }
-        else
-        {
-            throw std::runtime_error("Expect '{' or indentation after else.");
-        }
-    }
-
-    return std::make_unique<IfStatement>(std::move(condition), std::move(thenBranch), std::move(elseBranch));
-}
-
-std::unique_ptr<Statement> Parser::whileStatement()
-{
-    auto condition = expression();
-
-    std::vector<std::unique_ptr<Statement>> body;
-    if (match(TokenType::LEFT_BRACE))
-    {
-        while (!check(TokenType::RIGHT_BRACE) && !isAtEnd())
-        {
-            body.push_back(declaration());
-        }
-        consume(TokenType::RIGHT_BRACE, "Expect '}' after while body.");
-    }
-    else if (match(TokenType::NEWLINE))
-    {
-        consume(TokenType::INDENT, "Expect indented block after while condition.");
-        while (!check(TokenType::DEDENT) && !isAtEnd())
-        {
-            body.push_back(declaration());
-        }
-        consume(TokenType::DEDENT, "Expect dedent after while body.");
-    }
-    else
-    {
-        throw std::runtime_error("Expect '{' or indentation after while condition.");
-    }
-
-    return std::make_unique<WhileStatement>(std::move(condition), std::move(body));
-}
-
-std::unique_ptr<Statement> Parser::forStatement()
-{
-    auto initializer = expression();
-    consume(TokenType::SEMICOLON, "Expect ';' after for initializer.");
-    auto condition = expression();
-    consume(TokenType::SEMICOLON, "Expect ';' after for condition.");
-    auto increment = expression();
-
-    std::vector<std::unique_ptr<Statement>> body;
-    if (match(TokenType::LEFT_BRACE))
-    {
-        while (!check(TokenType::RIGHT_BRACE) && !isAtEnd())
-        {
-            body.push_back(declaration());
-        }
-        consume(TokenType::RIGHT_BRACE, "Expect '}' after for body.");
-    }
-    else if (match(TokenType::NEWLINE))
-    {
-        consume(TokenType::INDENT, "Expect indented block after for header.");
-        while (!check(TokenType::DEDENT) && !isAtEnd())
-        {
-            body.push_back(declaration());
-        }
-        consume(TokenType::DEDENT, "Expect dedent after for body.");
-    }
-    else
-    {
-        throw std::runtime_error("Expect '{' or indentation after for header.");
-    }
-
-    return std::make_unique<ForStatement>(std::move(initializer), std::move(condition), std::move(increment), std::move(body));
-}
-
-std::unique_ptr<Statement> Parser::returnStatement()
-{
-    std::unique_ptr<Expression> value = nullptr;
-    if (!check(TokenType::NEWLINE) && !check(TokenType::EOF_TOKEN))
-    {
-        value = expression();
-    }
-    // Optionally consume trailing newline
-    match(TokenType::NEWLINE);
-    return std::make_unique<ReturnStatement>(std::move(value));
-}
-
-std::unique_ptr<Statement> Parser::passStatement()
-{
-    return std::make_unique<PassStatement>();
-}
-
-std::unique_ptr<Statement> Parser::breakStatement()
-{
-    return std::make_unique<BreakStatement>();
-}
-
-std::unique_ptr<Statement> Parser::continueStatement()
-{
-    return std::make_unique<ContinueStatement>();
-}
-
-std::unique_ptr<Statement> Parser::printStatement()
-{
-    auto expr = expression();
-    return std::make_unique<PrintStatement>(std::move(expr));
-}
-
-std::unique_ptr<Statement> Parser::statement()
-{
-    // Could be assignment or expression statement
-    if (check(TokenType::IDENTIFIER) && tokens.size() > current + 1 && tokens[current + 1].type == TokenType::EQUAL)
-    {
-        return assignmentStatement();
-    }
+    if (match(TokenType::CLASS)) return classDeclaration();
+    if (match(TokenType::TASK)) return taskDeclaration();
+    if (match(TokenType::PRINT)) return printStatement();
+    
     return expressionStatement();
 }
 
-std::unique_ptr<Statement> Parser::assignmentStatement()
-{
-    Token nameToken = consume(TokenType::IDENTIFIER, "Expect variable name.");
-    consume(TokenType::EQUAL, "Expect '=' after variable name.");
-    auto value = expression();
-    return std::make_unique<AssignmentStatement>(nameToken.lexeme, std::move(value));
+std::unique_ptr<ClassStatement> Parser::classDeclaration() {
+    Token nameToken = consume(TokenType::IDENTIFIER, "Expect class name.");
+    std::string className = nameToken.lexeme;
+
+    std::vector<std::unique_ptr<Statement>> methods;
+
+    if (match(TokenType::LEFT_BRACE)) {
+        // Go-style block
+        while (!check(TokenType::RIGHT_BRACE) && !isAtEnd()) {
+            skipNewlines();
+            if (check(TokenType::RIGHT_BRACE)) break;
+            methods.push_back(declaration());
+        }
+        consume(TokenType::RIGHT_BRACE, "Expect '}' after class body.");
+    } else if (match(TokenType::NEWLINE)) {
+        // Python-style indentation block
+        consume(TokenType::INDENT, "Expect indented block after class declaration.");
+        while (!check(TokenType::DEDENT) && !isAtEnd()) {
+            skipNewlines();
+            if (check(TokenType::DEDENT)) break;
+            methods.push_back(declaration());
+        }
+        consume(TokenType::DEDENT, "Expect dedent after class body.");
+    } else {
+        throw std::runtime_error("Expect '{' or indentation after class declaration.");
+    }
+
+    return std::make_unique<ClassStatement>(className, std::move(methods));
 }
 
-std::unique_ptr<Statement> Parser::expressionStatement()
-{
+std::unique_ptr<TaskStatement> Parser::taskDeclaration() {
+    Token nameToken = consume(TokenType::IDENTIFIER, "Expect task name.");
+    std::string taskName = nameToken.lexeme;
+
+    consume(TokenType::LEFT_PAREN, "Expect '(' after task name.");
+
+    std::vector<std::pair<std::string, std::string>> params;
+    if (!check(TokenType::RIGHT_PAREN)) {
+        do {
+            Token paramName = consume(TokenType::IDENTIFIER, "Expect parameter name.");
+            consume(TokenType::COLON, "Expect ':' after parameter name.");
+            Token paramType = consume(TokenType::IDENTIFIER, "Expect parameter type.");
+            params.emplace_back(paramName.lexeme, paramType.lexeme);
+        } while (match(TokenType::COMMA));
+    }
+
+    consume(TokenType::RIGHT_PAREN, "Expect ')' after parameters.");
+
+    std::string returnType = "void";
+    if (match(TokenType::COLON)) {
+        Token returnTypeToken = consume(TokenType::IDENTIFIER, "Expect return type.");
+        returnType = returnTypeToken.lexeme;
+    }
+
+    std::vector<std::unique_ptr<Statement>> body;
+
+    if (match(TokenType::LEFT_BRACE)) {
+        while (!check(TokenType::RIGHT_BRACE) && !isAtEnd()) {
+            skipNewlines();
+            if (check(TokenType::RIGHT_BRACE)) break;
+            body.push_back(declaration());
+        }
+        consume(TokenType::RIGHT_BRACE, "Expect '}' after task body.");
+    } else if (match(TokenType::NEWLINE)) {
+        consume(TokenType::INDENT, "Expect indented block after task declaration.");
+        while (!check(TokenType::DEDENT) && !isAtEnd()) {
+            skipNewlines();
+            if (check(TokenType::DEDENT)) break;
+            body.push_back(declaration());
+        }
+        consume(TokenType::DEDENT, "Expect dedent after task body.");
+    } else {
+        throw std::runtime_error("Expect '{' or indentation after task declaration.");
+    }
+
+    return std::make_unique<TaskStatement>(taskName, params, returnType, std::move(body));
+}
+
+std::unique_ptr<Statement> Parser::printStatement() {
+    auto value = expression();
+    consumeEndOfStatement();
+    return std::make_unique<PrintStatement>(std::move(value));
+}
+
+std::unique_ptr<Statement> Parser::expressionStatement() {
     auto expr = expression();
+    consumeEndOfStatement();
     return std::make_unique<ExpressionStatement>(std::move(expr));
 }
 
-// Expression parsing follows typical precedence climbing or recursive descent
-
-std::unique_ptr<Expression> Parser::expression()
-{
-    return logicalOr();
-}
-
-std::unique_ptr<Expression> Parser::logicalOr()
-{
-    auto expr = logicalAnd();
-
-    while (match(TokenType::OR))
-    {
-        std::string op = previous().lexeme;
-        auto right = logicalAnd();
-        expr = std::make_unique<LogicalExpression>(std::move(expr), op, std::move(right));
+void Parser::consumeEndOfStatement() {
+    // Allow optional semicolon
+    match(TokenType::SEMICOLON);
+    
+    // If we're at a newline or end of file, we're good
+    if (check(TokenType::NEWLINE) || check(TokenType::EOF_TOKEN)) {
+        match(TokenType::NEWLINE); // Consume it if it's a newline
+        return;
     }
-
-    return expr;
+    
+    throw std::runtime_error("Expect newline or semicolon after expression.");
 }
 
-std::unique_ptr<Expression> Parser::logicalAnd()
-{
-    auto expr = equality();
-
-    while (match(TokenType::AND))
-    {
-        std::string op = previous().lexeme;
-        auto right = equality();
-        expr = std::make_unique<LogicalExpression>(std::move(expr), op, std::move(right));
+void Parser::skipNewlines() {
+    while (match(TokenType::NEWLINE)) {
+        // Consume all newlines
     }
-
-    return expr;
 }
 
-std::unique_ptr<Expression> Parser::equality()
-{
+std::unique_ptr<Expression> Parser::expression() {
+    return equality();
+}
+
+std::unique_ptr<Expression> Parser::equality() {
     auto expr = comparison();
-
-    while (match(TokenType::BANG_EQUAL) || match(TokenType::EQUAL_EQUAL))
-    {
-        std::string op = previous().lexeme;
+    
+    while (match(TokenType::EQUAL_EQUAL) || match(TokenType::BANG_EQUAL)) {
+        Token op = previous();
         auto right = comparison();
         expr = std::make_unique<BinaryExpression>(std::move(expr), op, std::move(right));
     }
-
+    
     return expr;
 }
 
-std::unique_ptr<Expression> Parser::comparison()
-{
+std::unique_ptr<Expression> Parser::comparison() {
     auto expr = term();
-
-    while (match(TokenType::GREATER) || match(TokenType::GREATER_EQUAL) || match(TokenType::LESS) || match(TokenType::LESS_EQUAL))
-    {
-        std::string op = previous().lexeme;
+    
+    while (match(TokenType::GREATER) || match(TokenType::GREATER_EQUAL) ||
+           match(TokenType::LESS) || match(TokenType::LESS_EQUAL)) {
+        Token op = previous();
         auto right = term();
         expr = std::make_unique<BinaryExpression>(std::move(expr), op, std::move(right));
     }
-
+    
     return expr;
 }
 
-std::unique_ptr<Expression> Parser::term()
-{
+std::unique_ptr<Expression> Parser::term() {
     auto expr = factor();
-
-    while (match(TokenType::PLUS) || match(TokenType::MINUS))
-    {
-        std::string op = previous().lexeme;
+    
+    while (match(TokenType::PLUS) || match(TokenType::MINUS)) {
+        Token op = previous();
         auto right = factor();
         expr = std::make_unique<BinaryExpression>(std::move(expr), op, std::move(right));
     }
-
+    
     return expr;
 }
 
-std::unique_ptr<Expression> Parser::factor()
-{
+std::unique_ptr<Expression> Parser::factor() {
     auto expr = unary();
-
-    while (match(TokenType::STAR) || match(TokenType::SLASH))
-    {
-        std::string op = previous().lexeme;
+    
+    while (match(TokenType::STAR) || match(TokenType::SLASH)) {
+        Token op = previous();
         auto right = unary();
         expr = std::make_unique<BinaryExpression>(std::move(expr), op, std::move(right));
     }
-
+    
     return expr;
 }
 
-std::unique_ptr<Expression> Parser::unary()
-{
-    if (match(TokenType::BANG) || match(TokenType::MINUS))
-    {
-        std::string op = previous().lexeme;
+std::unique_ptr<Expression> Parser::unary() {
+    if (match(TokenType::BANG) || match(TokenType::MINUS)) {
+        Token op = previous();
         auto right = unary();
         return std::make_unique<UnaryExpression>(op, std::move(right));
     }
+    
     return primary();
 }
 
-std::unique_ptr<Expression> Parser::primary()
-{
-    if (match(TokenType::FALSE))
-        return std::make_unique<BooleanLiteral>(false);
-    if (match(TokenType::TRUE))
-        return std::make_unique<BooleanLiteral>(true);
-    if (match(TokenType::NULL_TOKEN))
-        return std::make_unique<NullLiteral>();
-    if (match(TokenType::NUMBER))
-        return std::make_unique<NumberLiteral>(std::stod(previous().lexeme));
-    if (match(TokenType::STRING))
-        return std::make_unique<StringLiteral>(previous().lexeme);
-    if (match(TokenType::IDENTIFIER))
-        return std::make_unique<VariableExpression>(previous().lexeme);
-    if (match(TokenType::LEFT_PAREN))
-    {
+std::unique_ptr<Expression> Parser::primary() {
+    if (match(TokenType::FALSE)) return std::make_unique<Literal>("false");
+    if (match(TokenType::TRUE)) return std::make_unique<Literal>("true");
+    if (match(TokenType::NULL_TOKEN)) return std::make_unique<Literal>("null");
+    
+    if (match(TokenType::NUMBER) || match(TokenType::STRING)) {
+        return std::make_unique<Literal>(previous().lexeme);
+    }
+    
+    if (match(TokenType::IDENTIFIER)) {
+        return std::make_unique<VariableExpression>(previous());
+    }
+    
+    if (match(TokenType::LEFT_PAREN)) {
         auto expr = expression();
         consume(TokenType::RIGHT_PAREN, "Expect ')' after expression.");
         return std::make_unique<GroupingExpression>(std::move(expr));
     }
-
+    
     throw std::runtime_error("Expect expression.");
 }
 
-// Helper functions
+// Token helpers
 
-bool Parser::match(TokenType type)
-{
-    if (check(type))
-    {
+bool Parser::match(TokenType type) {
+    if (check(type)) {
         advance();
         return true;
     }
     return false;
 }
 
-bool Parser::check(TokenType type)
-{
-    if (isAtEnd())
-        return false;
+bool Parser::check(TokenType type) {
+    if (isAtEnd()) return false;
     return peek().type == type;
 }
 
-const Token &Parser::advance()
-{
-    if (!isAtEnd())
-        current++;
+Token Parser::advance() {
+    if (!isAtEnd()) current++;
     return previous();
 }
 
-bool Parser::isAtEnd()
-{
-    return peek().type == TokenType::EOF_TOKEN;
-}
-
-const Token &Parser::peek()
-{
+Token Parser::peek() {
     return tokens[current];
 }
 
-const Token &Parser::previous()
-{
+Token Parser::previous() {
     return tokens[current - 1];
 }
 
-Token Parser::consume(TokenType type, const std::string &message)
-{
-    if (check(type))
-        return advance();
-    throw std::runtime_error(message);
+bool Parser::isAtEnd() {
+    return peek().type == TokenType::EOF_TOKEN;
 }
 
-void Parser::skipNewlines()
-{
-    while (match(TokenType::NEWLINE))
-    {
-    }
+Token Parser::consume(TokenType type, const std::string& message) {
+    if (check(type)) return advance();
+    throw std::runtime_error("Error at line " + std::to_string(peek().line) + ": " + message);
 }

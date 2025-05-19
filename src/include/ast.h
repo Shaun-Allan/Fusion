@@ -54,5 +54,3 @@ public:
     std::string returnType;
     std::vector<std::unique_ptr<Statement>> body;
 };
-
-// Add more node types as needed

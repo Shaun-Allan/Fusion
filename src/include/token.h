@@ -6,17 +6,23 @@
 enum class TokenType {
     // Keywords
     CLASS, DEF, TASK, PARALLEL, ASYNC, AWAIT,
-    IF, ELSE, FOR, WHILE, RETURN, AND, OR, NOT,
+    IF, ELSE, FOR, WHILE, RETURN, AND, OR, NOT, PRINT,
+
+    //Control flow
+    PASS, BREAK, CONTINUE,
 
     // Literals
     IDENTIFIER, STRING, NUMBER,
 
     // Operators
-    PLUS, MINUS, STAR, SLASH,
+    PLUS, MINUS, STAR, SLASH, BANG,
     GREATER, GREATER_EQUAL,
     LESS, LESS_EQUAL,
     EQUAL, EQUAL_EQUAL,
     BANG_EQUAL, // for !=
+
+    // Boolean
+    TRUE, FALSE, NULL_TOKEN,
 
     // Symbols
     COLON, COMMA, DOT, SEMICOLON,

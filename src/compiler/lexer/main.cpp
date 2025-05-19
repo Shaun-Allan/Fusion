@@ -36,13 +36,12 @@ std::string tokenTypeToString(TokenType type) {
 int main() {
     // Example source code (can also be read from a file)
     std::string source = R"(
-        class Example:
-            def run():
-                if x > 10.57:
-                    return "Done"
-                else:
-                    return "Retry"
-    )";
+        class MyClass
+            task doSomething(param1: int): void {
+                // task body could go here
+                pass
+            }
+        )";
 
     Lexer lexer(source);
     std::vector<Token> tokens = lexer.scanTokens();
